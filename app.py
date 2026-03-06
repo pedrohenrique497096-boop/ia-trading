@@ -8,12 +8,11 @@ ASSETS = {
     "EURUSD": "EURUSD=X",
     "GBPUSD": "GBPUSD=X",
     "AUDUSD": "AUDUSD=X",
-    "XAUUSD": "XAUUSD=X",
+    "XAUUSD": "GC=F",   # ouro via future, costuma funcionar melhor
     "USDJPY": "JPY=X",
 }
 
 TIMEFRAMES = {
-    "1M": ("1d", "1m"),
     "5M": ("5d", "5m"),
     "15M": ("10d", "15m"),
     "1H": ("1mo", "60m"),
@@ -21,12 +20,25 @@ TIMEFRAMES = {
 }
 
 def get_data(symbol: str, period: str, interval: str) -> pd.DataFrame:
-    df = yf.download(symbol, period=period, interval=interval, progress=False)
-    if df is None or df.empty:
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period=period, interval=interval, auto_adjust=False)
+
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] for c in df.columns]
+
+        needed = ["Open", "High", "Low", "Close"]
+        for col in needed:
+            if col not in df.columns:
+                return pd.DataFrame()
+
+        return df.dropna()
+    except Exception as e:
+        st.error(f"Erro ao buscar dados: {e}")
         return pd.DataFrame()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [c[0] for c in df.columns]
-    return df.dropna()
 
 def analyze(df: pd.DataFrame):
     df = df.copy()
@@ -69,7 +81,7 @@ col1, col2 = st.columns([1, 2])
 
 with col1:
     asset = st.selectbox("Ativo", list(ASSETS.keys()), index=0)
-    tf = st.selectbox("Timeframe", list(TIMEFRAMES.keys()), index=1)
+    tf = st.selectbox("Timeframe", list(TIMEFRAMES.keys()), index=0)
     run = st.button("Analisar", use_container_width=True)
 
 with col2:
@@ -78,7 +90,8 @@ with col2:
         df = get_data(ASSETS[asset], period, interval)
 
         if df.empty:
-            st.error("Não consegui puxar os dados agora.")
+            st.error("A fonte de dados retornou vazio para esse ativo/timeframe.")
+            st.write("Teste primeiro EURUSD em 1H ou 1D.")
         else:
             price, direction, confidence, stop, tps = analyze(df)
 
@@ -95,6 +108,9 @@ with col2:
                     st.write(f"TP{i}: {tp:.5f}")
             else:
                 st.write("Sem take profits.")
+
+            st.subheader("Últimos dados")
+            st.dataframe(df.tail(10), use_container_width=True)
 
             st.subheader("Gráfico")
             st.line_chart(df[["Close"]].tail(200))
