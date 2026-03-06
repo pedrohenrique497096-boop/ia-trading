@@ -1,10 +1,11 @@
+import time
 import requests
 import pandas as pd
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="IA Forex Institucional Pro", layout="wide")
+st.set_page_config(page_title="IA Forex Institucional Pro V2 ULTRA", layout="wide")
 
 ASSETS = {
     "EURUSD": "EUR/USD",
@@ -34,9 +35,21 @@ TF_WEIGHTS = {
     "1min": 0.8,
 }
 
+REFRESH_OPTIONS = {
+    "Desligado": 0,
+    "5s": 5,
+    "10s": 10,
+    "15s": 15,
+    "30s": 30,
+}
+
+# =========================
+# API
+# =========================
 def get_api_key():
     return st.secrets.get("TWELVE_DATA_API_KEY", None)
 
+@st.cache_data(ttl=15, show_spinner=False)
 def fetch_data(symbol: str, interval: str, apikey: str, outputsize: int = 300) -> pd.DataFrame:
     url = "https://api.twelvedata.com/time_series"
     params = {
@@ -62,7 +75,7 @@ def fetch_data(symbol: str, interval: str, apikey: str, outputsize: int = 300) -
         "open": "Open",
         "high": "High",
         "low": "Low",
-        "close": "Close"
+        "close": "Close",
     })
 
     df["Datetime"] = pd.to_datetime(df["Datetime"])
@@ -72,6 +85,9 @@ def fetch_data(symbol: str, interval: str, apikey: str, outputsize: int = 300) -
     df = df.sort_values("Datetime").dropna().reset_index(drop=True)
     return df
 
+# =========================
+# Indicadores
+# =========================
 def rsi(series: pd.Series, length: int = 14) -> pd.Series:
     delta = series.diff()
     gain = delta.clip(lower=0)
@@ -96,6 +112,9 @@ def atr(df: pd.DataFrame, length: int = 14) -> pd.Series:
 
     return tr.rolling(length).mean().bfill()
 
+# =========================
+# Heurísticas de leitura
+# =========================
 def market_structure(df: pd.DataFrame):
     recent = df.tail(20).copy()
     last = recent.iloc[-1]["Close"]
@@ -169,6 +188,7 @@ def detect_order_block(df: pd.DataFrame):
         candle = recent.iloc[i]
         nxt = recent.iloc[i + 1:i + 4]
 
+        # bullish OB
         if candle["Close"] < candle["Open"]:
             if nxt["Close"].iloc[-1] > candle["High"]:
                 return {
@@ -177,6 +197,7 @@ def detect_order_block(df: pd.DataFrame):
                     "low": float(candle["Low"])
                 }
 
+        # bearish OB
         if candle["Close"] > candle["Open"]:
             if nxt["Close"].iloc[-1] < candle["Low"]:
                 return {
@@ -210,14 +231,16 @@ def poi_levels(df: pd.DataFrame):
     ob = detect_order_block(df)
     fvg = detect_fvg(df)
 
-    pois = {
+    return {
         "recent_high": float(recent["High"].max()),
         "recent_low": float(recent["Low"].min()),
         "ob": ob,
         "fvg": fvg,
     }
-    return pois
 
+# =========================
+# Análise por timeframe
+# =========================
 def analyze_tf(df: pd.DataFrame, tf: str):
     df = df.copy()
     df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
@@ -308,6 +331,9 @@ def analyze_tf(df: pd.DataFrame, tf: str):
         "df": df
     }
 
+# =========================
+# Combinação top-down
+# =========================
 def classify_trend(results):
     htf = [r for r in results if r["tf_raw"] in ["1day", "4h", "1h"]]
     bullish = sum(r["bias"] == "Bullish" for r in htf)
@@ -391,6 +417,9 @@ def build_trade(price, direction, atr_value):
 
     return stop, tps
 
+# =========================
+# Gráfico
+# =========================
 def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction):
     fig = go.Figure()
 
@@ -403,21 +432,49 @@ def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction)
         name="Candles"
     ))
 
-    fig.add_hline(y=pois["recent_high"], line_dash="dot", line_color="yellow",
-                  annotation_text="Recent High", annotation_position="top left")
-    fig.add_hline(y=pois["recent_low"], line_dash="dot", line_color="orange",
-                  annotation_text="Recent Low", annotation_position="bottom left")
+    # POIs
+    fig.add_hline(
+        y=pois["recent_high"],
+        line_dash="dot",
+        line_color="yellow",
+        annotation_text="Recent High",
+        annotation_position="top left"
+    )
+    fig.add_hline(
+        y=pois["recent_low"],
+        line_dash="dot",
+        line_color="orange",
+        annotation_text="Recent Low",
+        annotation_position="bottom left"
+    )
 
+    # Entrada / Stop / TPs
     if final_direction in ["BUY", "SELL"]:
-        fig.add_hline(y=entry, line_color="cyan", line_width=2,
-                      annotation_text="Entrada", annotation_position="top left")
-        fig.add_hline(y=stop, line_color="red", line_width=2,
-                      annotation_text="Stop", annotation_position="top left")
+        fig.add_hline(
+            y=entry,
+            line_color="#00d4ff",
+            line_width=2,
+            annotation_text="Entrada",
+            annotation_position="top left"
+        )
+        fig.add_hline(
+            y=stop,
+            line_color="#ff4d4f",
+            line_width=2,
+            annotation_text="Stop",
+            annotation_position="top left"
+        )
 
         for i, tp in enumerate(tps, start=1):
-            fig.add_hline(y=tp, line_color="green", line_width=1,
-                          annotation_text=f"TP{i}", annotation_position="top right")
+            fig.add_hline(
+                y=tp,
+                line_color="#00c853",
+                line_width=1,
+                annotation_text=f"TP{i}",
+                annotation_position="top right"
+            )
 
+    # OB
     ob = pois["ob"]
     if ob:
         fig.add_hrect(
@@ -429,6 +486,7 @@ def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction)
             annotation_position="top left"
         )
 
+    # FVG
     fvg = pois["fvg"]
     if fvg:
         fig.add_hrect(
@@ -442,17 +500,26 @@ def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction)
 
     fig.update_layout(
         title=title,
-        xaxis_title="Tempo",
-        yaxis_title="Preço",
-        xaxis_rangeslider_visible=False,
         template="plotly_dark",
-        height=650,
-        margin=dict(l=10, r=10, t=40, b=10)
+        xaxis=dict(
+            showgrid=False,
+            rangeslider_visible=False
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.05)"
+        ),
+        height=720,
+        margin=dict(l=0, r=0, t=35, b=0),
+        dragmode="pan"
     )
 
     return fig
 
-st.title("IA Forex Institucional Pro")
+# =========================
+# UI
+# =========================
+st.title("IA Forex Institucional Pro V2 ULTRA")
 st.caption("Top-down + OB + FVG + IFVG + AMD + POI + viés fundamental. Ferramenta educacional.")
 
 api_key = get_api_key()
@@ -466,11 +533,26 @@ with left:
     asset = st.selectbox("Ativo", list(ASSETS.keys()), index=0)
     exec_tf = st.selectbox("Período de entrada", ["1min", "5min"], index=1)
     chart_tf = st.selectbox("Tempo do gráfico", TF_LIST, index=4, format_func=lambda x: TF_LABELS[x])
+    refresh_label = st.selectbox("Atualização ao vivo", list(REFRESH_OPTIONS.keys()), index=1)
     fundamental_bias = st.selectbox("Viés fundamental", ["Neutral", "Bullish", "Bearish"], index=0)
-    run = st.button("Analisar", use_container_width=True)
+
+    b1, b2 = st.columns(2)
+    with b1:
+        run = st.button("Analisar", use_container_width=True)
+    with b2:
+        refresh_chart = st.button("Atualizar gráfico", use_container_width=True)
+
+refresh_seconds = REFRESH_OPTIONS[refresh_label]
+
+if "run_analysis" not in st.session_state:
+    st.session_state["run_analysis"] = False
+
+if run or refresh_chart:
+    st.session_state["run_analysis"] = True
+    st.cache_data.clear()
 
 with right:
-    if run:
+    if st.session_state["run_analysis"]:
         try:
             results = []
             for tf in TF_LIST:
@@ -490,7 +572,6 @@ with right:
 
             trade_direction = "BUY" if final_direction == "BUY" else "SELL" if final_direction == "SELL" else "NEUTRO"
             stop, tps = build_trade(exec_result["price"], trade_direction, exec_result["atr"])
-
             pois = poi_levels(chart_result["df"])
 
             k1, k2, k3, k4, k5 = st.columns(5)
@@ -572,3 +653,7 @@ with right:
             st.error(f"Erro ao analisar: {e}")
     else:
         st.info("Clique em Analisar para gerar a leitura institucional.")
+
+if st.session_state.get("run_analysis") and refresh_seconds > 0:
+    time.sleep(refresh_seconds)
+    st.rerun()
