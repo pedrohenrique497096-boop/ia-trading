@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 import streamlit as st
 import numpy as np
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="IA Forex Institucional Pro", layout="wide")
 
@@ -75,10 +76,8 @@ def rsi(series: pd.Series, length: int = 14) -> pd.Series:
     delta = series.diff()
     gain = delta.clip(lower=0)
     loss = (-delta).clip(lower=0)
-
     avg_gain = gain.rolling(length).mean()
     avg_loss = loss.rolling(length).mean().replace(0, np.nan)
-
     rs = avg_gain / avg_loss
     out = 100 - (100 / (1 + rs))
     return out.fillna(50)
@@ -99,10 +98,7 @@ def atr(df: pd.DataFrame, length: int = 14) -> pd.Series:
 
 def market_structure(df: pd.DataFrame):
     recent = df.tail(20).copy()
-    hh = recent["High"].max()
-    ll = recent["Low"].min()
     last = recent.iloc[-1]["Close"]
-
     ema50 = recent["Close"].ewm(span=50, adjust=False).mean().iloc[-1]
     ema200 = recent["Close"].ewm(span=200, adjust=False).mean().iloc[-1]
 
@@ -119,7 +115,6 @@ def detect_liquidity_sweep(df: pd.DataFrame):
 
     prev_high = recent["High"].iloc[:-1].max()
     prev_low = recent["Low"].iloc[:-1].min()
-
     last = recent.iloc[-1]
 
     if last["High"] > prev_high and last["Close"] < prev_high:
@@ -129,15 +124,13 @@ def detect_liquidity_sweep(df: pd.DataFrame):
     return "none"
 
 def detect_fvg(df: pd.DataFrame):
-    recent = df.tail(10).reset_index(drop=True)
+    recent = df.tail(20).reset_index(drop=True)
     found = []
 
     for i in range(2, len(recent)):
         c1 = recent.iloc[i - 2]
-        c2 = recent.iloc[i - 1]
         c3 = recent.iloc[i]
 
-        # bullish fvg
         if c3["Low"] > c1["High"]:
             found.append({
                 "type": "bullish",
@@ -145,7 +138,6 @@ def detect_fvg(df: pd.DataFrame):
                 "bottom": float(c1["High"])
             })
 
-        # bearish fvg
         if c3["High"] < c1["Low"]:
             found.append({
                 "type": "bearish",
@@ -153,10 +145,7 @@ def detect_fvg(df: pd.DataFrame):
                 "bottom": float(c3["High"])
             })
 
-    if not found:
-        return None
-
-    return found[-1]
+    return found[-1] if found else None
 
 def detect_ifvg(df: pd.DataFrame):
     fvg = detect_fvg(df)
@@ -180,20 +169,16 @@ def detect_order_block(df: pd.DataFrame):
         candle = recent.iloc[i]
         nxt = recent.iloc[i + 1:i + 4]
 
-        # bullish OB: last bearish candle before impulse up
         if candle["Close"] < candle["Open"]:
-            impulse_up = nxt["Close"].iloc[-1] > candle["High"]
-            if impulse_up:
+            if nxt["Close"].iloc[-1] > candle["High"]:
                 return {
                     "type": "bullish_ob",
                     "high": float(candle["High"]),
                     "low": float(candle["Low"])
                 }
 
-        # bearish OB: last bullish candle before impulse down
         if candle["Close"] > candle["Open"]:
-            impulse_down = nxt["Close"].iloc[-1] < candle["Low"]
-            if impulse_down:
+            if nxt["Close"].iloc[-1] < candle["Low"]:
                 return {
                     "type": "bearish_ob",
                     "high": float(candle["High"]),
@@ -210,18 +195,14 @@ def detect_amd(df: pd.DataFrame):
     rng = recent["High"].max() - recent["Low"].min()
     body_mean = (recent["Close"] - recent["Open"]).abs().mean()
     last = recent.iloc[-1]
-
     sweep = detect_liquidity_sweep(df)
 
     if rng > 0 and body_mean < (rng * 0.10):
         return "Accumulation"
-
     if sweep != "none":
         return "Manipulation"
-
     if abs(last["Close"] - recent["Close"].iloc[0]) > (rng * 0.35):
         return "Distribution"
-
     return "Neutral"
 
 def poi_levels(df: pd.DataFrame):
@@ -229,21 +210,16 @@ def poi_levels(df: pd.DataFrame):
     ob = detect_order_block(df)
     fvg = detect_fvg(df)
 
-    pois = []
-    pois.append(f"Recent High: {recent['High'].max():.5f}")
-    pois.append(f"Recent Low: {recent['Low'].min():.5f}")
-
-    if ob:
-        pois.append(f"{ob['type']}: {ob['low']:.5f} - {ob['high']:.5f}")
-
-    if fvg:
-        pois.append(f"{fvg['type']} FVG: {fvg['bottom']:.5f} - {fvg['top']:.5f}")
-
+    pois = {
+        "recent_high": float(recent["High"].max()),
+        "recent_low": float(recent["Low"].min()),
+        "ob": ob,
+        "fvg": fvg,
+    }
     return pois
 
 def analyze_tf(df: pd.DataFrame, tf: str):
     df = df.copy()
-
     df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
     df["EMA50"] = df["Close"].ewm(span=50, adjust=False).mean()
     df["EMA200"] = df["Close"].ewm(span=200, adjust=False).mean()
@@ -251,11 +227,9 @@ def analyze_tf(df: pd.DataFrame, tf: str):
     df["ATR14"] = atr(df, 14)
 
     last = df.iloc[-1]
-
     price = float(last["Close"])
     ema20 = float(last["EMA20"])
     ema50 = float(last["EMA50"])
-    ema200 = float(last["EMA200"])
     rsi14 = float(last["RSI14"])
     atr14 = float(last["ATR14"]) if not np.isnan(last["ATR14"]) else max(price * 0.001, 0.0005)
 
@@ -266,60 +240,54 @@ def analyze_tf(df: pd.DataFrame, tf: str):
     ob = detect_order_block(df)
     amd = detect_amd(df)
 
-    score = 0
+    bullish_points = 0
+    bearish_points = 0
 
-    # trend / structure
     if structure == "bullish":
-        score += 2
+        bullish_points += 2
     elif structure == "bearish":
-        score -= 2
+        bearish_points += 2
 
-    # momentum
     if price > ema20 > ema50:
-        score += 1
+        bullish_points += 1
     elif price < ema20 < ema50:
-        score -= 1
+        bearish_points += 1
 
-    # rsi
     if rsi14 < 35:
-        score += 1
+        bullish_points += 1
     elif rsi14 > 65:
-        score -= 1
+        bearish_points += 1
 
-    # liquidity reaction
     if sweep == "buy_side_reaction":
-        score += 1
+        bullish_points += 1
     elif sweep == "sell_side_reaction":
-        score -= 1
+        bearish_points += 1
 
-    # fvg
     if fvg:
         if fvg["type"] == "bullish":
-            score += 1
+            bullish_points += 1
         elif fvg["type"] == "bearish":
-            score -= 1
+            bearish_points += 1
 
-    # ifvg
     if ifvg == "bullish_ifvg":
-        score += 1
+        bullish_points += 1
     elif ifvg == "bearish_ifvg":
-        score -= 1
+        bearish_points += 1
 
-    # order block
     if ob:
         if ob["type"] == "bullish_ob":
-            score += 1
+            bullish_points += 1
         elif ob["type"] == "bearish_ob":
-            score -= 1
+            bearish_points += 1
 
-    if score >= 3:
-        direction = "BUY"
-    elif score <= -3:
-        direction = "SELL"
+    if bullish_points - bearish_points >= 2:
+        bias = "Bullish"
+    elif bearish_points - bullish_points >= 2:
+        bias = "Bearish"
     else:
-        direction = "NEUTRO"
+        bias = "Neutral"
 
-    confidence = int(np.clip(55 + abs(score) * 6, 55, 95))
+    confidence = int(np.clip(55 + abs(bullish_points - bearish_points) * 6, 55, 95))
 
     return {
         "tf": TF_LABELS[tf],
@@ -333,25 +301,26 @@ def analyze_tf(df: pd.DataFrame, tf: str):
         "ifvg": ifvg if ifvg else "none",
         "ob": ob["type"] if ob else "none",
         "amd": amd,
-        "score": score,
-        "direction": direction,
+        "bullish_points": bullish_points,
+        "bearish_points": bearish_points,
+        "bias": bias,
         "confidence": confidence,
         "df": df
     }
 
 def classify_trend(results):
     htf = [r for r in results if r["tf_raw"] in ["1day", "4h", "1h"]]
-    buy = sum(r["direction"] == "BUY" for r in htf)
-    sell = sum(r["direction"] == "SELL" for r in htf)
+    bullish = sum(r["bias"] == "Bullish" for r in htf)
+    bearish = sum(r["bias"] == "Bearish" for r in htf)
 
-    if buy >= 2:
+    if bullish >= 2:
         return "Bullish"
-    if sell >= 2:
+    if bearish >= 2:
         return "Bearish"
     return "Neutral"
 
 def classify_strength(results):
-    avg = np.mean([abs(r["score"]) for r in results])
+    avg = np.mean([abs(r["bullish_points"] - r["bearish_points"]) for r in results])
     if avg >= 4:
         return "Strong"
     if avg >= 2.5:
@@ -366,43 +335,46 @@ def classify_volatility(exec_result):
         return "Medium"
     return "Low"
 
-def apply_fundamental_bias(direction, probability, bias):
+def apply_fundamental_bias(probability, direction, bias):
     if bias == "Bullish":
         if direction == "BUY":
             probability = min(95, probability + 5)
         elif direction == "SELL":
             probability = max(55, probability - 5)
-
     elif bias == "Bearish":
         if direction == "SELL":
             probability = min(95, probability + 5)
         elif direction == "BUY":
             probability = max(55, probability - 5)
-
     return probability
 
-def combine_results(results, fundamental_bias):
-    weighted_score = 0
-    weight_total = 0
+def combine_results(results, exec_tf, fundamental_bias):
+    weighted_bullish = 0
+    weighted_bearish = 0
 
     for r in results:
         w = TF_WEIGHTS[r["tf_raw"]]
-        weighted_score += r["score"] * w
-        weight_total += 6 * w
+        weighted_bullish += r["bullish_points"] * w
+        weighted_bearish += r["bearish_points"] * w
 
-    norm = weighted_score / weight_total if weight_total else 0
+    exec_result = next(r for r in results if r["tf_raw"] == exec_tf)
+    diff = weighted_bullish - weighted_bearish
 
-    if norm >= 0.20:
+    if diff >= 4 and exec_result["bias"] == "Bullish":
         final_direction = "BUY"
-    elif norm <= -0.20:
+    elif diff <= -4 and exec_result["bias"] == "Bearish":
         final_direction = "SELL"
     else:
-        final_direction = "NEUTRO"
+        final_direction = "NEUTRO — esperando entrada"
 
-    probability = int(np.clip(60 + abs(norm) * 40, 60, 95))
-    probability = apply_fundamental_bias(final_direction, probability, fundamental_bias)
+    base_probability = int(np.clip(60 + (abs(diff) * 2), 60, 95))
 
-    return final_direction, probability
+    if final_direction == "BUY":
+        base_probability = apply_fundamental_bias(base_probability, "BUY", fundamental_bias)
+    elif final_direction == "SELL":
+        base_probability = apply_fundamental_bias(base_probability, "SELL", fundamental_bias)
+
+    return final_direction, base_probability
 
 def build_trade(price, direction, atr_value):
     risk = max(atr_value * 1.5, price * 0.001)
@@ -419,6 +391,67 @@ def build_trade(price, direction, atr_value):
 
     return stop, tps
 
+def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction):
+    fig = go.Figure()
+
+    fig.add_trace(go.Candlestick(
+        x=df["Datetime"],
+        open=df["Open"],
+        high=df["High"],
+        low=df["Low"],
+        close=df["Close"],
+        name="Candles"
+    ))
+
+    fig.add_hline(y=pois["recent_high"], line_dash="dot", line_color="yellow",
+                  annotation_text="Recent High", annotation_position="top left")
+    fig.add_hline(y=pois["recent_low"], line_dash="dot", line_color="orange",
+                  annotation_text="Recent Low", annotation_position="bottom left")
+
+    if final_direction in ["BUY", "SELL"]:
+        fig.add_hline(y=entry, line_color="cyan", line_width=2,
+                      annotation_text="Entrada", annotation_position="top left")
+        fig.add_hline(y=stop, line_color="red", line_width=2,
+                      annotation_text="Stop", annotation_position="top left")
+
+        for i, tp in enumerate(tps, start=1):
+            fig.add_hline(y=tp, line_color="green", line_width=1,
+                          annotation_text=f"TP{i}", annotation_position="top right")
+
+    ob = pois["ob"]
+    if ob:
+        fig.add_hrect(
+            y0=ob["low"],
+            y1=ob["high"],
+            fillcolor="rgba(0, 150, 255, 0.15)" if ob["type"] == "bullish_ob" else "rgba(255, 80, 80, 0.15)",
+            line_width=0,
+            annotation_text=ob["type"],
+            annotation_position="top left"
+        )
+
+    fvg = pois["fvg"]
+    if fvg:
+        fig.add_hrect(
+            y0=fvg["bottom"],
+            y1=fvg["top"],
+            fillcolor="rgba(0, 255, 100, 0.12)" if fvg["type"] == "bullish" else "rgba(255, 120, 120, 0.12)",
+            line_width=0,
+            annotation_text=f'{fvg["type"]} FVG',
+            annotation_position="bottom left"
+        )
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="Tempo",
+        yaxis_title="Preço",
+        xaxis_rangeslider_visible=False,
+        template="plotly_dark",
+        height=650,
+        margin=dict(l=10, r=10, t=40, b=10)
+    )
+
+    return fig
+
 st.title("IA Forex Institucional Pro")
 st.caption("Top-down + OB + FVG + IFVG + AMD + POI + viés fundamental. Ferramenta educacional.")
 
@@ -432,11 +465,8 @@ left, right = st.columns([1, 3])
 with left:
     asset = st.selectbox("Ativo", list(ASSETS.keys()), index=0)
     exec_tf = st.selectbox("Período de entrada", ["1min", "5min"], index=1)
-    fundamental_bias = st.selectbox(
-        "Viés fundamental",
-        ["Neutral", "Bullish", "Bearish"],
-        index=0
-    )
+    chart_tf = st.selectbox("Tempo do gráfico", TF_LIST, index=4, format_func=lambda x: TF_LABELS[x])
+    fundamental_bias = st.selectbox("Viés fundamental", ["Neutral", "Bullish", "Bearish"], index=0)
     run = st.button("Analisar", use_container_width=True)
 
 with right:
@@ -450,15 +480,18 @@ with right:
                     st.stop()
                 results.append(analyze_tf(df, tf))
 
-            final_direction, probability = combine_results(results, fundamental_bias)
+            final_direction, probability = combine_results(results, exec_tf, fundamental_bias)
             exec_result = next(r for r in results if r["tf_raw"] == exec_tf)
+            chart_result = next(r for r in results if r["tf_raw"] == chart_tf)
 
             trend = classify_trend(results)
             strength = classify_strength(results)
             volatility = classify_volatility(exec_result)
 
-            stop, tps = build_trade(exec_result["price"], final_direction, exec_result["atr"])
-            pois = poi_levels(exec_result["df"])
+            trade_direction = "BUY" if final_direction == "BUY" else "SELL" if final_direction == "SELL" else "NEUTRO"
+            stop, tps = build_trade(exec_result["price"], trade_direction, exec_result["atr"])
+
+            pois = poi_levels(chart_result["df"])
 
             k1, k2, k3, k4, k5 = st.columns(5)
             k1.metric("Preço", f'{exec_result["price"]:.5f}')
@@ -467,36 +500,10 @@ with right:
             k4.metric("Volatilidade", volatility)
             k5.metric("Probabilidade", f"{probability}%")
 
-            st.subheader("Resumo Institucional")
-            st.write(f"**Direção final:** {final_direction}")
-            st.write(f"**Viés fundamental:** {fundamental_bias}")
-            st.write(f"**AMD:** {exec_result['amd']}")
-            st.write(f"**Estrutura:** {exec_result['structure']}")
-            st.write(f"**Liquidity Sweep:** {exec_result['sweep']}")
-            st.write(f"**Order Block:** {exec_result['ob']}")
-            st.write(f"**FVG:** {exec_result['fvg']}")
-            st.write(f"**IFVG:** {exec_result['ifvg']}")
-
-            st.subheader("Entrada")
-            st.write(f"**Entrada:** {exec_result['price']:.5f}")
-            st.write(f"**Stop:** {stop:.5f}")
-
-            st.subheader("Take Profits")
-            if tps:
-                for i, tp in enumerate(tps, start=1):
-                    st.write(f"TP{i}: {tp:.5f}")
-            else:
-                st.write("Sem take profits.")
-
-            st.subheader("Pontos de Interesse")
-            for p in pois:
-                st.write(f"- {p}")
-
             table = pd.DataFrame([
                 {
                     "TF": r["tf"],
-                    "Direção": r["direction"],
-                    "Score": r["score"],
+                    "Viés": r["bias"],
                     "Confiança": f'{r["confidence"]}%',
                     "Estrutura": r["structure"],
                     "Sweep": r["sweep"],
@@ -510,13 +517,56 @@ with right:
                 for r in results
             ])
 
-            st.subheader("Painel por Timeframe")
-            st.dataframe(table, use_container_width=True)
+            aba1, aba2 = st.tabs(["Painel Principal", "Análise Completa"])
 
-            st.subheader(f"Gráfico ({TF_LABELS[exec_tf]})")
-            chart_df = next(r["df"] for r in results if r["tf_raw"] == exec_tf)
-            chart_df = chart_df.set_index("Datetime")[["Close"]].tail(200)
-            st.line_chart(chart_df)
+            with aba1:
+                st.subheader("Resumo do Sinal")
+                st.write(f"**Direção final:** {final_direction}")
+                st.write(f"**Entrada:** {exec_result['price']:.5f}")
+                st.write(f"**Stop:** {stop:.5f}")
+
+                st.subheader("Take Profits")
+                if tps and final_direction in ["BUY", "SELL"]:
+                    for i, tp in enumerate(tps, start=1):
+                        st.write(f"TP{i}: {tp:.5f}")
+                else:
+                    st.write("Aguardando entrada confirmada.")
+
+                st.subheader(f"Gráfico em Candles ({TF_LABELS[chart_tf]})")
+                fig = create_candlestick_chart(
+                    chart_result["df"].tail(150),
+                    f"{asset} - {TF_LABELS[chart_tf]}",
+                    exec_result["price"],
+                    stop,
+                    tps,
+                    pois,
+                    final_direction
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            with aba2:
+                st.subheader("Resumo Institucional")
+                st.write(f"**Direção final:** {final_direction}")
+                st.write(f"**Viés fundamental:** {fundamental_bias}")
+                st.write(f"**AMD:** {exec_result['amd']}")
+                st.write(f"**Estrutura:** {exec_result['structure']}")
+                st.write(f"**Liquidity Sweep:** {exec_result['sweep']}")
+                st.write(f"**Order Block:** {exec_result['ob']}")
+                st.write(f"**FVG:** {exec_result['fvg']}")
+                st.write(f"**IFVG:** {exec_result['ifvg']}")
+
+                st.subheader("Pontos de Interesse")
+                st.write(f"- Recent High: {pois['recent_high']:.5f}")
+                st.write(f"- Recent Low: {pois['recent_low']:.5f}")
+
+                if pois["ob"]:
+                    st.write(f"- {pois['ob']['type']}: {pois['ob']['low']:.5f} - {pois['ob']['high']:.5f}")
+
+                if pois["fvg"]:
+                    st.write(f"- {pois['fvg']['type']} FVG: {pois['fvg']['bottom']:.5f} - {pois['fvg']['top']:.5f}")
+
+                st.subheader("Painel por Timeframe")
+                st.dataframe(table, use_container_width=True, hide_index=True)
 
         except Exception as e:
             st.error(f"Erro ao analisar: {e}")
