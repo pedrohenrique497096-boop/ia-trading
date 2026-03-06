@@ -1,44 +1,57 @@
+import requests
 import pandas as pd
 import streamlit as st
-import yfinance as yf
 
 st.set_page_config(page_title="IA Forex Simples", layout="wide")
 
 ASSETS = {
-    "EURUSD": "EURUSD=X",
-    "GBPUSD": "GBPUSD=X",
-    "AUDUSD": "AUDUSD=X",
-    "XAUUSD": "GC=F",   # ouro via future, costuma funcionar melhor
-    "USDJPY": "JPY=X",
+    "EURUSD": "EUR/USD",
+    "GBPUSD": "GBP/USD",
+    "AUDUSD": "AUD/USD",
+    "USDJPY": "USD/JPY",
+    "XAUUSD": "XAU/USD",
 }
 
 TIMEFRAMES = {
-    "5M": ("5d", "5m"),
-    "15M": ("10d", "15m"),
-    "1H": ("1mo", "60m"),
-    "1D": ("6mo", "1d"),
+    "1min": "1min",
+    "5min": "5min",
+    "15min": "15min",
+    "1h": "1h",
+    "1day": "1day",
 }
 
-def get_data(symbol: str, period: str, interval: str) -> pd.DataFrame:
-    try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period=period, interval=interval, auto_adjust=False)
+def get_api_key():
+    if "TWELVE_DATA_API_KEY" in st.secrets:
+        return st.secrets["TWELVE_DATA_API_KEY"]
+    return None
 
-        if df is None or df.empty:
-            return pd.DataFrame()
+def get_data(symbol: str, interval: str, apikey: str) -> pd.DataFrame:
+    url = "https://api.twelvedata.com/time_series"
+    params = {
+        "symbol": symbol,
+        "interval": interval,
+        "outputsize": 200,
+        "apikey": apikey,
+    }
 
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [c[0] for c in df.columns]
+    response = requests.get(url, params=params, timeout=20)
+    data = response.json()
 
-        needed = ["Open", "High", "Low", "Close"]
-        for col in needed:
-            if col not in df.columns:
-                return pd.DataFrame()
+    if "status" in data and data["status"] == "error":
+        raise ValueError(data.get("message", "Erro ao buscar dados."))
 
-        return df.dropna()
-    except Exception as e:
-        st.error(f"Erro ao buscar dados: {e}")
+    values = data.get("values")
+    if not values:
         return pd.DataFrame()
+
+    df = pd.DataFrame(values)
+    df = df.rename(columns={"datetime": "Datetime", "open": "Open", "high": "High", "low": "Low", "close": "Close"})
+    df["Datetime"] = pd.to_datetime(df["Datetime"])
+    for col in ["Open", "High", "Low", "Close"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.sort_values("Datetime").dropna().reset_index(drop=True)
+    return df
 
 def analyze(df: pd.DataFrame):
     df = df.copy()
@@ -77,42 +90,50 @@ def analyze(df: pd.DataFrame):
 st.title("IA Forex Simples")
 st.caption("Ferramenta educacional. Não é recomendação financeira.")
 
+api_key = get_api_key()
+
+if not api_key:
+    st.error("Chave da API não encontrada. Adicione TWELVE_DATA_API_KEY nos Secrets do Streamlit.")
+    st.stop()
+
 col1, col2 = st.columns([1, 2])
 
 with col1:
     asset = st.selectbox("Ativo", list(ASSETS.keys()), index=0)
-    tf = st.selectbox("Timeframe", list(TIMEFRAMES.keys()), index=0)
+    tf = st.selectbox("Período de tempo", list(TIMEFRAMES.keys()), index=1)
     run = st.button("Analisar", use_container_width=True)
 
 with col2:
     if run:
-        period, interval = TIMEFRAMES[tf]
-        df = get_data(ASSETS[asset], period, interval)
+        try:
+            df = get_data(ASSETS[asset], TIMEFRAMES[tf], api_key)
 
-        if df.empty:
-            st.error("A fonte de dados retornou vazio para esse ativo/timeframe.")
-            st.write("Teste primeiro EURUSD em 1H ou 1D.")
-        else:
-            price, direction, confidence, stop, tps = analyze(df)
-
-            a, b, c = st.columns(3)
-            a.metric("Preço", f"{price:.5f}")
-            b.metric("Direção", direction)
-            c.metric("Confiança", f"{confidence}%")
-
-            st.write(f"**Stop:** {stop:.5f}")
-
-            st.subheader("Take Profits")
-            if tps:
-                for i, tp in enumerate(tps, start=1):
-                    st.write(f"TP{i}: {tp:.5f}")
+            if df.empty:
+                st.error("A API retornou vazio para esse ativo/timeframe.")
             else:
-                st.write("Sem take profits.")
+                price, direction, confidence, stop, tps = analyze(df)
 
-            st.subheader("Últimos dados")
-            st.dataframe(df.tail(10), use_container_width=True)
+                a, b, c = st.columns(3)
+                a.metric("Preço", f"{price:.5f}")
+                b.metric("Direção", direction)
+                c.metric("Confiança", f"{confidence}%")
 
-            st.subheader("Gráfico")
-            st.line_chart(df[["Close"]].tail(200))
+                st.write(f"**Stop:** {stop:.5f}")
+
+                st.subheader("Take Profits")
+                if tps:
+                    for i, tp in enumerate(tps, start=1):
+                        st.write(f"TP{i}: {tp:.5f}")
+                else:
+                    st.write("Sem take profits.")
+
+                st.subheader("Últimos dados")
+                st.dataframe(df.tail(10), use_container_width=True)
+
+                st.subheader("Gráfico")
+                chart_df = df.set_index("Datetime")[["Close"]].tail(200)
+                st.line_chart(chart_df)
+        except Exception as e:
+            st.error(f"Erro ao analisar: {e}")
     else:
         st.info("Clique em Analisar para gerar a análise.")
