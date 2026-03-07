@@ -67,6 +67,38 @@ st.markdown("""
         font-size: 22px;
     }
 
+    .setup-box {
+        background: linear-gradient(135deg, rgba(28,22,8,0.92), rgba(15,12,5,0.98));
+        border: 1px solid rgba(242,208,107,0.24);
+        border-radius: 16px;
+        padding: 14px 16px;
+        margin-top: 10px;
+        margin-bottom: 14px;
+        color: #f5e6a8;
+    }
+
+    .setup-title {
+        color: #ffd86b;
+        font-size: 20px;
+        font-weight: 900;
+        margin-bottom: 8px;
+    }
+
+    .setup-ok {
+        color: #00e676;
+        font-weight: 800;
+    }
+
+    .setup-wait {
+        color: #ffd54f;
+        font-weight: 800;
+    }
+
+    .setup-bad {
+        color: #ff5c5c;
+        font-weight: 800;
+    }
+
     div[data-testid="stMetric"] {
         background: linear-gradient(135deg, rgba(20,20,20,0.95), rgba(7,7,7,0.98));
         border: 1px solid rgba(212,175,55,0.18);
@@ -539,9 +571,146 @@ def build_trade(price, direction, atr_value):
     return stop, tps
 
 # =========================
+# PRÉ-ENTRADA / DESCARTE
+# =========================
+def build_setup(final_direction, exec_result, pois, trend, strength, volatility):
+    current_price = exec_result["price"]
+    atr_value = exec_result["atr"]
+
+    setup = {
+        "status": "Sem setup",
+        "why": [],
+        "entry_low": None,
+        "entry_high": None,
+        "ideal_entry": None,
+        "invalidation": None,
+        "summary": "Sem tese válida no momento.",
+        "discarded": False
+    }
+
+    # sem direção
+    if final_direction not in ["BUY", "SELL"]:
+        setup["status"] = "Aguardando confluência"
+        setup["summary"] = "Os timeframes ainda não alinharam o suficiente para liberar uma entrada."
+        setup["why"] = [
+            f"Tendência atual: {trend}",
+            f"Força do movimento: {strength}",
+            f"Volatilidade: {volatility}",
+            "O sinal 5M ainda não confirmou a direção final."
+        ]
+        return setup
+
+    ob = pois["ob"]
+    fvg = pois["fvg"]
+
+    # BUY
+    if final_direction == "BUY":
+        zone_low = None
+        zone_high = None
+
+        if ob and ob["type"] == "bullish_ob":
+            zone_low = ob["low"]
+            zone_high = ob["high"]
+
+        if fvg and fvg["type"] == "bullish":
+            if zone_low is None:
+                zone_low = fvg["bottom"]
+                zone_high = fvg["top"]
+            else:
+                zone_low = min(zone_low, fvg["bottom"])
+                zone_high = max(zone_high, fvg["top"])
+
+        if zone_low is None or zone_high is None:
+            zone_low = current_price - atr_value * 0.5
+            zone_high = current_price - atr_value * 0.15
+
+        ideal_entry = (zone_low + zone_high) / 2
+        invalidation = zone_low - atr_value * 0.35
+
+        if current_price < invalidation:
+            setup["status"] = "Setup descartado"
+            setup["discarded"] = True
+            setup["summary"] = "A hipótese compradora foi invalidada antes da confirmação da entrada."
+        elif zone_low <= current_price <= zone_high:
+            setup["status"] = "Aguardando confirmação na zona"
+            setup["summary"] = "O preço já entrou na zona compradora. Aguardar confirmação de candle antes da entrada."
+        elif current_price > zone_high:
+            setup["status"] = "Aguardando retração"
+            setup["summary"] = "O viés segue comprador, mas a entrada ideal seria em retração até a zona marcada."
+        else:
+            setup["status"] = "Setup em observação"
+            setup["summary"] = "O viés comprador segue válido, aguardando aproximação mais limpa da zona."
+
+        setup["why"] = [
+            f"Tendência macro: {trend}",
+            f"Força do movimento: {strength}",
+            f"Volatilidade: {volatility}",
+            f"Estrutura 5M: {exec_result['structure']}",
+            f"OB/FVG comprador servindo como POI"
+        ]
+        setup["entry_low"] = zone_low
+        setup["entry_high"] = zone_high
+        setup["ideal_entry"] = ideal_entry
+        setup["invalidation"] = invalidation
+        return setup
+
+    # SELL
+    if final_direction == "SELL":
+        zone_low = None
+        zone_high = None
+
+        if ob and ob["type"] == "bearish_ob":
+            zone_low = ob["low"]
+            zone_high = ob["high"]
+
+        if fvg and fvg["type"] == "bearish":
+            if zone_low is None:
+                zone_low = fvg["bottom"]
+                zone_high = fvg["top"]
+            else:
+                zone_low = min(zone_low, fvg["bottom"])
+                zone_high = max(zone_high, fvg["top"])
+
+        if zone_low is None or zone_high is None:
+            zone_low = current_price + atr_value * 0.15
+            zone_high = current_price + atr_value * 0.5
+
+        ideal_entry = (zone_low + zone_high) / 2
+        invalidation = zone_high + atr_value * 0.35
+
+        if current_price > invalidation:
+            setup["status"] = "Setup descartado"
+            setup["discarded"] = True
+            setup["summary"] = "A hipótese vendedora foi invalidada antes da confirmação da entrada."
+        elif zone_low <= current_price <= zone_high:
+            setup["status"] = "Aguardando confirmação na zona"
+            setup["summary"] = "O preço já entrou na zona vendedora. Aguardar confirmação de candle antes da entrada."
+        elif current_price < zone_low:
+            setup["status"] = "Aguardando retração"
+            setup["summary"] = "O viés segue vendedor, mas a entrada ideal seria em retração até a zona marcada."
+        else:
+            setup["status"] = "Setup em observação"
+            setup["summary"] = "O viés vendedor segue válido, aguardando aproximação mais limpa da zona."
+
+        setup["why"] = [
+            f"Tendência macro: {trend}",
+            f"Força do movimento: {strength}",
+            f"Volatilidade: {volatility}",
+            f"Estrutura 5M: {exec_result['structure']}",
+            f"OB/FVG vendedor servindo como POI"
+        ]
+        setup["entry_low"] = zone_low
+        setup["entry_high"] = zone_high
+        setup["ideal_entry"] = ideal_entry
+        setup["invalidation"] = invalidation
+        return setup
+
+    return setup
+
+# =========================
 # GRÁFICO
 # =========================
-def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction):
+def create_candlestick_chart(df, title, setup, stop, tps, pois, final_direction):
     fig = go.Figure()
 
     fig.add_trace(go.Candlestick(
@@ -572,22 +741,37 @@ def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction)
         annotation_position="bottom left"
     )
 
-    if final_direction in ["BUY", "SELL"]:
-        fig.add_hline(
-            y=entry,
-            line_color="#00e5ff",
-            line_width=2,
-            annotation_text="Entrada",
-            annotation_position="top left"
-        )
-        fig.add_hline(
-            y=stop,
-            line_color="#ff1744",
-            line_width=2,
-            annotation_text="Stop",
+    # zona de possível entrada
+    if setup["entry_low"] is not None and setup["entry_high"] is not None:
+        fig.add_hrect(
+            y0=setup["entry_low"],
+            y1=setup["entry_high"],
+            fillcolor="rgba(0,229,255,0.10)" if final_direction == "BUY" else "rgba(255,82,82,0.10)",
+            line_width=1,
+            line_color="rgba(255,255,255,0.08)",
+            annotation_text="Possível entrada",
             annotation_position="top left"
         )
 
+    if setup["ideal_entry"] is not None:
+        fig.add_hline(
+            y=setup["ideal_entry"],
+            line_color="#00e5ff",
+            line_width=2,
+            annotation_text="Entrada ideal",
+            annotation_position="top left"
+        )
+
+    if setup["invalidation"] is not None:
+        fig.add_hline(
+            y=setup["invalidation"],
+            line_color="#ff1744",
+            line_width=2,
+            annotation_text="Invalidação",
+            annotation_position="top left"
+        )
+
+    if final_direction in ["BUY", "SELL"] and not setup["discarded"] and tps:
         for i, tp in enumerate(tps, start=1):
             fig.add_hline(
                 y=tp,
@@ -681,9 +865,20 @@ with right:
         strength = classify_strength(results)
         volatility = classify_volatility(exec_result)
 
+        pois = poi_levels(exec_result["df"])
+        setup = build_setup(final_direction, exec_result, pois, trend, strength, volatility)
+
+        # se descartado, neutra automaticamente
+        display_direction = final_direction
+        if setup["discarded"]:
+            display_direction = "NEUTRO — setup descartado"
+
         trade_direction = "BUY" if final_direction == "BUY" else "SELL" if final_direction == "SELL" else "NEUTRO"
-        stop, tps = build_trade(exec_result["price"], trade_direction, exec_result["atr"])
-        pois = poi_levels(chart_result["df"])
+        stop, tps = build_trade(
+            setup["ideal_entry"] if setup["ideal_entry"] is not None else exec_result["price"],
+            trade_direction if not setup["discarded"] else "NEUTRO",
+            exec_result["atr"]
+        )
 
         k1, k2, k3, k4, k5 = st.columns(5)
         k1.metric("Preço 5M", f'{exec_result["price"]:.5f}')
@@ -697,32 +892,59 @@ with right:
         with aba1:
             st.markdown('<div class="block-label">Resumo do Sinal</div>', unsafe_allow_html=True)
 
-            if final_direction == "BUY":
-                st.markdown(f'<div class="signal-buy">Direção final: {final_direction}</div>', unsafe_allow_html=True)
-            elif final_direction == "SELL":
-                st.markdown(f'<div class="signal-sell">Direção final: {final_direction}</div>', unsafe_allow_html=True)
+            if display_direction == "BUY":
+                st.markdown(f'<div class="signal-buy">Direção final: {display_direction}</div>', unsafe_allow_html=True)
+            elif display_direction == "SELL":
+                st.markdown(f'<div class="signal-sell">Direção final: {display_direction}</div>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<div class="signal-neutral">Direção final: {final_direction}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="signal-neutral">Direção final: {display_direction}</div>', unsafe_allow_html=True)
 
-            st.write(f"**Entrada (5M):** {exec_result['price']:.5f}")
-            st.write(f"**Stop:** {stop:.5f}")
+            # resumo da tese
+            status_class = "setup-wait"
+            if "descartado" in setup["status"].lower():
+                status_class = "setup-bad"
+            elif "confirmação" in setup["status"].lower():
+                status_class = "setup-ok"
+
+            st.markdown(
+                f"""
+                <div class="setup-box">
+                    <div class="setup-title">Tese antes da entrada</div>
+                    <div><b>Status:</b> <span class="{status_class}">{setup["status"]}</span></div>
+                    <div style="margin-top:8px;"><b>Resumo:</b> {setup["summary"]}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            st.markdown('<div class="block-label">Por que a IA está olhando esse setup</div>', unsafe_allow_html=True)
+            for item in setup["why"]:
+                st.write(f"- {item}")
+
+            st.markdown('<div class="block-label">Zona sugerida de entrada</div>', unsafe_allow_html=True)
+            if setup["entry_low"] is not None and setup["entry_high"] is not None:
+                st.write(f"**Zona de entrada:** {setup['entry_low']:.5f} até {setup['entry_high']:.5f}")
+                st.write(f"**Entrada ideal:** {setup['ideal_entry']:.5f}")
+                st.write(f"**Invalidação:** {setup['invalidation']:.5f}")
+            else:
+                st.write("Sem zona válida no momento.")
 
             st.markdown('<div class="block-label">Take Profits</div>', unsafe_allow_html=True)
-            if tps and final_direction in ["BUY", "SELL"]:
+            if tps and final_direction in ["BUY", "SELL"] and not setup["discarded"]:
                 for i, tp in enumerate(tps, start=1):
                     st.write(f"**TP{i}:** {tp:.5f}")
             else:
-                st.write("Aguardando entrada confirmada.")
+                st.write("Aguardando entrada confirmada ou setup descartado.")
 
             st.markdown(f'<div class="block-label">Gráfico em Candles ({TF_LABELS[chart_tf]})</div>', unsafe_allow_html=True)
             fig = create_candlestick_chart(
                 chart_result["df"].tail(150),
                 f"{asset} - {TF_LABELS[chart_tf]}",
-                exec_result["price"],
+                setup,
                 stop,
                 tps,
                 pois,
-                final_direction
+                final_direction if not setup["discarded"] else "NEUTRO"
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -745,7 +967,7 @@ with right:
             ])
 
             st.markdown('<div class="block-label">Resumo Institucional</div>', unsafe_allow_html=True)
-            st.write(f"**Direção final:** {final_direction}")
+            st.write(f"**Direção final:** {display_direction}")
             st.write(f"**Viés fundamental:** {fundamental_bias}")
             st.write(f"**AMD 5M:** {exec_result['amd']}")
             st.write(f"**Estrutura 5M:** {exec_result['structure']}")
