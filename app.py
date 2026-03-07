@@ -6,7 +6,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 st.set_page_config(
-    page_title="IA Forex Institucional Gold",
+    page_title="Shark Black Institutional",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -17,28 +17,47 @@ st.set_page_config(
 st.markdown("""
 <style>
     .stApp {
-        background: linear-gradient(180deg, #050505 0%, #0b0b0b 45%, #111111 100%);
+        background: linear-gradient(180deg, #050505 0%, #0a0a0a 50%, #111111 100%);
         color: #f5f5f5;
     }
 
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0a0a0a 0%, #131313 100%);
-        border-right: 1px solid rgba(212,175,55,0.18);
+        background: linear-gradient(180deg, #090909 0%, #121212 100%);
+        border-right: 1px solid rgba(212,175,55,0.16);
     }
 
-    .main-title {
-        font-size: 40px;
+    .title-container{
+        padding-top: 8px;
+        padding-bottom: 18px;
+    }
+
+    .title-main{
+        font-size: 52px;
         font-weight: 900;
-        color: #f2d06b;
-        margin-bottom: 6px;
-        letter-spacing: 0.5px;
-        text-shadow: 0 0 10px rgba(242,208,107,0.12);
+        letter-spacing: 4px;
+        background: linear-gradient(90deg,#FFD700,#F4C430,#D4AF37,#FFD700);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0 0 18px rgba(212,175,55,0.22);
+        margin-bottom: 4px;
+        line-height: 1.0;
     }
 
-    .sub-title {
-        color: #d6c27a;
-        font-size: 15px;
-        margin-bottom: 18px;
+    .title-sub{
+        font-size: 18px;
+        color: #d4af37;
+        letter-spacing: 4px;
+        font-weight: 700;
+        opacity: 0.95;
+        margin-top: 4px;
+    }
+
+    .gold-line{
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg,transparent,#D4AF37,transparent);
+        margin-top: 14px;
+        margin-bottom: 6px;
     }
 
     .gold-card {
@@ -52,19 +71,19 @@ st.markdown("""
     .signal-buy {
         color: #00e676;
         font-weight: 900;
-        font-size: 22px;
+        font-size: 24px;
     }
 
     .signal-sell {
         color: #ff5252;
         font-weight: 900;
-        font-size: 22px;
+        font-size: 24px;
     }
 
     .signal-neutral {
         color: #ffd54f;
         font-weight: 900;
-        font-size: 22px;
+        font-size: 24px;
     }
 
     .setup-box {
@@ -588,7 +607,6 @@ def build_setup(final_direction, exec_result, pois, trend, strength, volatility)
         "discarded": False
     }
 
-    # sem direção
     if final_direction not in ["BUY", "SELL"]:
         setup["status"] = "Aguardando confluência"
         setup["summary"] = "Os timeframes ainda não alinharam o suficiente para liberar uma entrada."
@@ -603,7 +621,6 @@ def build_setup(final_direction, exec_result, pois, trend, strength, volatility)
     ob = pois["ob"]
     fvg = pois["fvg"]
 
-    # BUY
     if final_direction == "BUY":
         zone_low = None
         zone_high = None
@@ -630,13 +647,13 @@ def build_setup(final_direction, exec_result, pois, trend, strength, volatility)
         if current_price < invalidation:
             setup["status"] = "Setup descartado"
             setup["discarded"] = True
-            setup["summary"] = "A hipótese compradora foi invalidada antes da confirmação da entrada."
+            setup["summary"] = "A hipótese compradora foi invalidada antes da confirmação."
         elif zone_low <= current_price <= zone_high:
             setup["status"] = "Aguardando confirmação na zona"
-            setup["summary"] = "O preço já entrou na zona compradora. Aguardar confirmação de candle antes da entrada."
+            setup["summary"] = "O preço entrou na zona compradora. Agora é preciso confirmação de candle."
         elif current_price > zone_high:
             setup["status"] = "Aguardando retração"
-            setup["summary"] = "O viés segue comprador, mas a entrada ideal seria em retração até a zona marcada."
+            setup["summary"] = "O viés segue comprador, mas a melhor entrada seria em retração até a zona."
         else:
             setup["status"] = "Setup em observação"
             setup["summary"] = "O viés comprador segue válido, aguardando aproximação mais limpa da zona."
@@ -646,7 +663,7 @@ def build_setup(final_direction, exec_result, pois, trend, strength, volatility)
             f"Força do movimento: {strength}",
             f"Volatilidade: {volatility}",
             f"Estrutura 5M: {exec_result['structure']}",
-            f"OB/FVG comprador servindo como POI"
+            "Order Block / FVG comprador como ponto de interesse"
         ]
         setup["entry_low"] = zone_low
         setup["entry_high"] = zone_high
@@ -654,7 +671,6 @@ def build_setup(final_direction, exec_result, pois, trend, strength, volatility)
         setup["invalidation"] = invalidation
         return setup
 
-    # SELL
     if final_direction == "SELL":
         zone_low = None
         zone_high = None
@@ -681,13 +697,13 @@ def build_setup(final_direction, exec_result, pois, trend, strength, volatility)
         if current_price > invalidation:
             setup["status"] = "Setup descartado"
             setup["discarded"] = True
-            setup["summary"] = "A hipótese vendedora foi invalidada antes da confirmação da entrada."
+            setup["summary"] = "A hipótese vendedora foi invalidada antes da confirmação."
         elif zone_low <= current_price <= zone_high:
             setup["status"] = "Aguardando confirmação na zona"
-            setup["summary"] = "O preço já entrou na zona vendedora. Aguardar confirmação de candle antes da entrada."
+            setup["summary"] = "O preço entrou na zona vendedora. Agora é preciso confirmação de candle."
         elif current_price < zone_low:
             setup["status"] = "Aguardando retração"
-            setup["summary"] = "O viés segue vendedor, mas a entrada ideal seria em retração até a zona marcada."
+            setup["summary"] = "O viés segue vendedor, mas a melhor entrada seria em retração até a zona."
         else:
             setup["status"] = "Setup em observação"
             setup["summary"] = "O viés vendedor segue válido, aguardando aproximação mais limpa da zona."
@@ -697,7 +713,7 @@ def build_setup(final_direction, exec_result, pois, trend, strength, volatility)
             f"Força do movimento: {strength}",
             f"Volatilidade: {volatility}",
             f"Estrutura 5M: {exec_result['structure']}",
-            f"OB/FVG vendedor servindo como POI"
+            "Order Block / FVG vendedor como ponto de interesse"
         ]
         setup["entry_low"] = zone_low
         setup["entry_high"] = zone_high
@@ -741,7 +757,6 @@ def create_candlestick_chart(df, title, setup, stop, tps, pois, final_direction)
         annotation_position="bottom left"
     )
 
-    # zona de possível entrada
     if setup["entry_low"] is not None and setup["entry_high"] is not None:
         fig.add_hrect(
             y0=setup["entry_low"],
@@ -821,11 +836,13 @@ def create_candlestick_chart(df, title, setup, stop, tps, pois, final_direction)
 # =========================
 # UI
 # =========================
-st.markdown('<div class="main-title">IA Forex Institucional Gold</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="sub-title">Versão otimizada para plano gratuito • análise em 1H, 15M e 5M • sinal final no 5M • atualização automática a cada 1 minuto</div>',
-    unsafe_allow_html=True
-)
+st.markdown("""
+<div class="title-container">
+    <div class="title-main">SHARK BLACK</div>
+    <div class="title-sub">INSTITUTIONAL MARKET INTELLIGENCE</div>
+    <div class="gold-line"></div>
+</div>
+""", unsafe_allow_html=True)
 
 api_key = get_api_key()
 if not api_key:
@@ -840,11 +857,7 @@ with left:
     chart_tf = st.selectbox("Tempo do gráfico", ANALYSIS_TFS, index=2, format_func=lambda x: TF_LABELS[x])
     fundamental_bias = st.selectbox("Viés fundamental", ["Neutral", "Bullish", "Bearish"], index=0)
 
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
-    st.write("**Execução fixa do sinal:** 5M")
-    st.write("**Análise otimizada:** 1H + 15M + 5M")
-    st.write("**Atualização automática:** 1 minuto")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div class="info-box">Atualização automática ativa • Execução fixa no 5M</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with right:
@@ -868,7 +881,6 @@ with right:
         pois = poi_levels(exec_result["df"])
         setup = build_setup(final_direction, exec_result, pois, trend, strength, volatility)
 
-        # se descartado, neutra automaticamente
         display_direction = final_direction
         if setup["discarded"]:
             display_direction = "NEUTRO — setup descartado"
@@ -899,18 +911,11 @@ with right:
             else:
                 st.markdown(f'<div class="signal-neutral">Direção final: {display_direction}</div>', unsafe_allow_html=True)
 
-            # resumo da tese
-            status_class = "setup-wait"
-            if "descartado" in setup["status"].lower():
-                status_class = "setup-bad"
-            elif "confirmação" in setup["status"].lower():
-                status_class = "setup-ok"
-
             st.markdown(
                 f"""
                 <div class="setup-box">
                     <div class="setup-title">Tese antes da entrada</div>
-                    <div><b>Status:</b> <span class="{status_class}">{setup["status"]}</span></div>
+                    <div><b>Status:</b> <span class="{"setup-bad" if "descartado" in setup["status"].lower() else "setup-ok" if "confirmação" in setup["status"].lower() else "setup-wait"}">{setup["status"]}</span></div>
                     <div style="margin-top:8px;"><b>Resumo:</b> {setup["summary"]}</div>
                 </div>
                 """,
@@ -934,7 +939,7 @@ with right:
                 for i, tp in enumerate(tps, start=1):
                     st.write(f"**TP{i}:** {tp:.5f}")
             else:
-                st.write("Aguardando entrada confirmada ou setup descartado.")
+                st.write("Aguardando confirmação ou setup descartado.")
 
             st.markdown(f'<div class="block-label">Gráfico em Candles ({TF_LABELS[chart_tf]})</div>', unsafe_allow_html=True)
             fig = create_candlestick_chart(
