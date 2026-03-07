@@ -27,7 +27,7 @@ st.markdown("""
     }
 
     .main-title {
-        font-size: 42px;
+        font-size: 40px;
         font-weight: 900;
         color: #f2d06b;
         margin-bottom: 6px;
@@ -105,7 +105,7 @@ st.markdown("""
         border-color: rgba(212,175,55,0.35);
     }
 
-    .stSelectbox label, .stRadio label {
+    .stSelectbox label {
         color: #d7bf73 !important;
         font-weight: 700 !important;
     }
@@ -116,11 +116,6 @@ st.markdown("""
         font-size: 20px;
         margin-top: 10px;
         margin-bottom: 10px;
-    }
-
-    .small-note {
-        color: #bda75a;
-        font-size: 13px;
     }
 
     .info-box {
@@ -151,26 +146,22 @@ ASSETS = {
     "AUDUSD": "AUD/USD",
     "USDJPY": "USD/JPY",
     "XAUUSD": "XAU/USD",
+    "BTCUSD": "BTC/USD",
 }
 
-ANALYSIS_TFS = ["1day", "4h", "1h", "15min", "5min"]
+ANALYSIS_TFS = ["1h", "15min", "5min"]
 EXEC_TF = "5min"
 
 TF_LABELS = {
-    "1day": "1D",
-    "4h": "4H",
     "1h": "1H",
     "15min": "15M",
     "5min": "5M",
-    "1min": "1M",
 }
 
 TF_WEIGHTS = {
-    "1day": 3.0,
-    "4h": 2.5,
-    "1h": 2.0,
-    "15min": 1.5,
-    "5min": 1.0,
+    "1h": 3.0,
+    "15min": 2.0,
+    "5min": 1.5,
 }
 
 REFRESH_SECONDS = 60
@@ -465,13 +456,13 @@ def analyze_tf(df: pd.DataFrame, tf: str):
 # TOP-DOWN
 # =========================
 def classify_trend(results):
-    htf = [r for r in results if r["tf_raw"] in ["1day", "4h", "1h"]]
+    htf = [r for r in results if r["tf_raw"] == "1h"]
     bullish = sum(r["bias"] == "Bullish" for r in htf)
     bearish = sum(r["bias"] == "Bearish" for r in htf)
 
-    if bullish >= 2:
+    if bullish >= 1:
         return "Bullish"
-    if bearish >= 2:
+    if bearish >= 1:
         return "Bearish"
     return "Neutral"
 
@@ -634,14 +625,8 @@ def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction)
         paper_bgcolor="#0b0b0b",
         plot_bgcolor="#0b0b0b",
         font=dict(color="#f5e6a8"),
-        xaxis=dict(
-            showgrid=False,
-            rangeslider_visible=False
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor="rgba(255,215,64,0.06)"
-        ),
+        xaxis=dict(showgrid=False, rangeslider_visible=False),
+        yaxis=dict(showgrid=True, gridcolor="rgba(255,215,64,0.06)"),
         height=740,
         margin=dict(l=0, r=0, t=40, b=0),
         dragmode="pan"
@@ -654,7 +639,7 @@ def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction)
 # =========================
 st.markdown('<div class="main-title">IA Forex Institucional Gold</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Análise top-down nos timeframes maiores • sinal final no 5M • atualização automática a cada 1 minuto</div>',
+    '<div class="sub-title">Versão otimizada para plano gratuito • análise em 1H, 15M e 5M • sinal final no 5M • atualização automática a cada 1 minuto</div>',
     unsafe_allow_html=True
 )
 
@@ -668,11 +653,12 @@ left, right = st.columns([1, 3])
 with left:
     st.markdown('<div class="gold-card">', unsafe_allow_html=True)
     asset = st.selectbox("Ativo", list(ASSETS.keys()), index=0)
-    chart_tf = st.selectbox("Tempo do gráfico", ANALYSIS_TFS, index=4, format_func=lambda x: TF_LABELS[x])
+    chart_tf = st.selectbox("Tempo do gráfico", ANALYSIS_TFS, index=2, format_func=lambda x: TF_LABELS[x])
     fundamental_bias = st.selectbox("Viés fundamental", ["Neutral", "Bullish", "Bearish"], index=0)
 
     st.markdown('<div class="info-box">', unsafe_allow_html=True)
     st.write("**Execução fixa do sinal:** 5M")
+    st.write("**Análise otimizada:** 1H + 15M + 5M")
     st.write("**Atualização automática:** 1 minuto")
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
