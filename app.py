@@ -5,8 +5,146 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="IA Forex Institucional Pro V2 ULTRA", layout="wide")
+st.set_page_config(
+    page_title="IA Forex Institucional Gold",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
+# =========================
+# ESTILO
+# =========================
+st.markdown("""
+<style>
+    .stApp {
+        background: linear-gradient(180deg, #050505 0%, #0b0b0b 45%, #111111 100%);
+        color: #f5f5f5;
+    }
+
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0a0a0a 0%, #131313 100%);
+        border-right: 1px solid rgba(212,175,55,0.18);
+    }
+
+    .main-title {
+        font-size: 42px;
+        font-weight: 900;
+        color: #f2d06b;
+        margin-bottom: 6px;
+        letter-spacing: 0.5px;
+        text-shadow: 0 0 10px rgba(242,208,107,0.12);
+    }
+
+    .sub-title {
+        color: #d6c27a;
+        font-size: 15px;
+        margin-bottom: 18px;
+    }
+
+    .gold-card {
+        background: linear-gradient(135deg, rgba(25,25,25,0.95), rgba(10,10,10,0.98));
+        border: 1px solid rgba(212,175,55,0.25);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: 0 0 18px rgba(212,175,55,0.08);
+    }
+
+    .signal-buy {
+        color: #00e676;
+        font-weight: 900;
+        font-size: 22px;
+    }
+
+    .signal-sell {
+        color: #ff5252;
+        font-weight: 900;
+        font-size: 22px;
+    }
+
+    .signal-neutral {
+        color: #ffd54f;
+        font-weight: 900;
+        font-size: 22px;
+    }
+
+    div[data-testid="stMetric"] {
+        background: linear-gradient(135deg, rgba(20,20,20,0.95), rgba(7,7,7,0.98));
+        border: 1px solid rgba(212,175,55,0.18);
+        padding: 10px 14px;
+        border-radius: 16px;
+        box-shadow: 0 0 14px rgba(212,175,55,0.05);
+    }
+
+    div[data-testid="stMetricLabel"] {
+        color: #c9b36b !important;
+        font-weight: 700 !important;
+    }
+
+    div[data-testid="stMetricValue"] {
+        color: #f7f2df !important;
+        font-weight: 900 !important;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        border-bottom: 1px solid rgba(212,175,55,0.15);
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        background: #111111;
+        border: 1px solid rgba(212,175,55,0.18);
+        border-radius: 12px 12px 0 0;
+        color: #e5d08a;
+        font-weight: 800;
+        padding: 10px 18px;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #1c1708, #2a210b);
+        color: #ffd86b !important;
+        border-color: rgba(212,175,55,0.35);
+    }
+
+    .stSelectbox label, .stRadio label {
+        color: #d7bf73 !important;
+        font-weight: 700 !important;
+    }
+
+    .block-label {
+        color: #f0d982;
+        font-weight: 800;
+        font-size: 20px;
+        margin-top: 10px;
+        margin-bottom: 10px;
+    }
+
+    .small-note {
+        color: #bda75a;
+        font-size: 13px;
+    }
+
+    .info-box {
+        background: linear-gradient(135deg, rgba(32,25,8,0.95), rgba(18,14,5,0.98));
+        border: 1px solid rgba(212,175,55,0.25);
+        border-radius: 16px;
+        padding: 14px 16px;
+        color: #f6e8b1;
+        margin-bottom: 14px;
+    }
+
+    .poi-box {
+        background: rgba(255, 215, 64, 0.06);
+        border: 1px solid rgba(255, 215, 64, 0.18);
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# =========================
+# CONFIG
+# =========================
 ASSETS = {
     "EURUSD": "EUR/USD",
     "GBPUSD": "GBP/USD",
@@ -15,7 +153,8 @@ ASSETS = {
     "XAUUSD": "XAU/USD",
 }
 
-TF_LIST = ["1day", "4h", "1h", "15min", "5min", "1min"]
+ANALYSIS_TFS = ["1day", "4h", "1h", "15min", "5min"]
+EXEC_TF = "5min"
 
 TF_LABELS = {
     "1day": "1D",
@@ -32,16 +171,9 @@ TF_WEIGHTS = {
     "1h": 2.0,
     "15min": 1.5,
     "5min": 1.0,
-    "1min": 0.8,
 }
 
-REFRESH_OPTIONS = {
-    "Desligado": 0,
-    "5s": 5,
-    "10s": 10,
-    "15s": 15,
-    "30s": 30,
-}
+REFRESH_SECONDS = 60
 
 # =========================
 # API
@@ -49,7 +181,7 @@ REFRESH_OPTIONS = {
 def get_api_key():
     return st.secrets.get("TWELVE_DATA_API_KEY", None)
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=20, show_spinner=False)
 def fetch_data(symbol: str, interval: str, apikey: str, outputsize: int = 300) -> pd.DataFrame:
     url = "https://api.twelvedata.com/time_series"
     params = {
@@ -86,7 +218,7 @@ def fetch_data(symbol: str, interval: str, apikey: str, outputsize: int = 300) -
     return df
 
 # =========================
-# Indicadores
+# INDICADORES
 # =========================
 def rsi(series: pd.Series, length: int = 14) -> pd.Series:
     delta = series.diff()
@@ -113,7 +245,7 @@ def atr(df: pd.DataFrame, length: int = 14) -> pd.Series:
     return tr.rolling(length).mean().bfill()
 
 # =========================
-# Heurísticas de leitura
+# LEITURAS
 # =========================
 def market_structure(df: pd.DataFrame):
     recent = df.tail(20).copy()
@@ -188,7 +320,6 @@ def detect_order_block(df: pd.DataFrame):
         candle = recent.iloc[i]
         nxt = recent.iloc[i + 1:i + 4]
 
-        # bullish OB
         if candle["Close"] < candle["Open"]:
             if nxt["Close"].iloc[-1] > candle["High"]:
                 return {
@@ -197,7 +328,6 @@ def detect_order_block(df: pd.DataFrame):
                     "low": float(candle["Low"])
                 }
 
-        # bearish OB
         if candle["Close"] > candle["Open"]:
             if nxt["Close"].iloc[-1] < candle["Low"]:
                 return {
@@ -239,7 +369,7 @@ def poi_levels(df: pd.DataFrame):
     }
 
 # =========================
-# Análise por timeframe
+# ANÁLISE POR TF
 # =========================
 def analyze_tf(df: pd.DataFrame, tf: str):
     df = df.copy()
@@ -332,7 +462,7 @@ def analyze_tf(df: pd.DataFrame, tf: str):
     }
 
 # =========================
-# Combinação top-down
+# TOP-DOWN
 # =========================
 def classify_trend(results):
     htf = [r for r in results if r["tf_raw"] in ["1day", "4h", "1h"]]
@@ -374,7 +504,7 @@ def apply_fundamental_bias(probability, direction, bias):
             probability = max(55, probability - 5)
     return probability
 
-def combine_results(results, exec_tf, fundamental_bias):
+def combine_results(results, fundamental_bias):
     weighted_bullish = 0
     weighted_bearish = 0
 
@@ -383,7 +513,7 @@ def combine_results(results, exec_tf, fundamental_bias):
         weighted_bullish += r["bullish_points"] * w
         weighted_bearish += r["bearish_points"] * w
 
-    exec_result = next(r for r in results if r["tf_raw"] == exec_tf)
+    exec_result = next(r for r in results if r["tf_raw"] == EXEC_TF)
     diff = weighted_bullish - weighted_bearish
 
     if diff >= 4 and exec_result["bias"] == "Bullish":
@@ -418,7 +548,7 @@ def build_trade(price, direction, atr_value):
     return stop, tps
 
 # =========================
-# Gráfico
+# GRÁFICO
 # =========================
 def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction):
     fig = go.Figure()
@@ -429,37 +559,39 @@ def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction)
         high=df["High"],
         low=df["Low"],
         close=df["Close"],
-        name="Candles"
+        name="Candles",
+        increasing_line_color="#f4d35e",
+        decreasing_line_color="#ff5c5c",
+        increasing_fillcolor="#f4d35e",
+        decreasing_fillcolor="#ff5c5c"
     ))
 
-    # POIs
     fig.add_hline(
         y=pois["recent_high"],
         line_dash="dot",
-        line_color="yellow",
+        line_color="#ffd700",
         annotation_text="Recent High",
         annotation_position="top left"
     )
     fig.add_hline(
         y=pois["recent_low"],
         line_dash="dot",
-        line_color="orange",
+        line_color="#ff9800",
         annotation_text="Recent Low",
         annotation_position="bottom left"
     )
 
-    # Entrada / Stop / TPs
     if final_direction in ["BUY", "SELL"]:
         fig.add_hline(
             y=entry,
-            line_color="#00d4ff",
+            line_color="#00e5ff",
             line_width=2,
             annotation_text="Entrada",
             annotation_position="top left"
         )
         fig.add_hline(
             y=stop,
-            line_color="#ff4d4f",
+            line_color="#ff1744",
             line_width=2,
             annotation_text="Stop",
             annotation_position="top left"
@@ -468,31 +600,29 @@ def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction)
         for i, tp in enumerate(tps, start=1):
             fig.add_hline(
                 y=tp,
-                line_color="#00c853",
+                line_color="#00e676",
                 line_width=1,
                 annotation_text=f"TP{i}",
                 annotation_position="top right"
             )
 
-    # OB
     ob = pois["ob"]
     if ob:
         fig.add_hrect(
             y0=ob["low"],
             y1=ob["high"],
-            fillcolor="rgba(0, 150, 255, 0.15)" if ob["type"] == "bullish_ob" else "rgba(255, 80, 80, 0.15)",
+            fillcolor="rgba(33, 150, 243, 0.18)" if ob["type"] == "bullish_ob" else "rgba(244, 67, 54, 0.16)",
             line_width=0,
             annotation_text=ob["type"],
             annotation_position="top left"
         )
 
-    # FVG
     fvg = pois["fvg"]
     if fvg:
         fig.add_hrect(
             y0=fvg["bottom"],
             y1=fvg["top"],
-            fillcolor="rgba(0, 255, 100, 0.12)" if fvg["type"] == "bullish" else "rgba(255, 120, 120, 0.12)",
+            fillcolor="rgba(255, 215, 64, 0.14)" if fvg["type"] == "bullish" else "rgba(255, 112, 67, 0.14)",
             line_width=0,
             annotation_text=f'{fvg["type"]} FVG',
             annotation_position="bottom left"
@@ -501,16 +631,19 @@ def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction)
     fig.update_layout(
         title=title,
         template="plotly_dark",
+        paper_bgcolor="#0b0b0b",
+        plot_bgcolor="#0b0b0b",
+        font=dict(color="#f5e6a8"),
         xaxis=dict(
             showgrid=False,
             rangeslider_visible=False
         ),
         yaxis=dict(
             showgrid=True,
-            gridcolor="rgba(255,255,255,0.05)"
+            gridcolor="rgba(255,215,64,0.06)"
         ),
-        height=720,
-        margin=dict(l=0, r=0, t=35, b=0),
+        height=740,
+        margin=dict(l=0, r=0, t=40, b=0),
         dragmode="pan"
     )
 
@@ -519,8 +652,11 @@ def create_candlestick_chart(df, title, entry, stop, tps, pois, final_direction)
 # =========================
 # UI
 # =========================
-st.title("IA Forex Institucional Pro V2 ULTRA")
-st.caption("Top-down + OB + FVG + IFVG + AMD + POI + viés fundamental. Ferramenta educacional.")
+st.markdown('<div class="main-title">IA Forex Institucional Gold</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="sub-title">Análise top-down nos timeframes maiores • sinal final no 5M • atualização automática a cada 1 minuto</div>',
+    unsafe_allow_html=True
+)
 
 api_key = get_api_key()
 if not api_key:
@@ -530,57 +666,81 @@ if not api_key:
 left, right = st.columns([1, 3])
 
 with left:
+    st.markdown('<div class="gold-card">', unsafe_allow_html=True)
     asset = st.selectbox("Ativo", list(ASSETS.keys()), index=0)
-    exec_tf = st.selectbox("Período de entrada", ["1min", "5min"], index=1)
-    chart_tf = st.selectbox("Tempo do gráfico", TF_LIST, index=4, format_func=lambda x: TF_LABELS[x])
-    refresh_label = st.selectbox("Atualização ao vivo", list(REFRESH_OPTIONS.keys()), index=1)
+    chart_tf = st.selectbox("Tempo do gráfico", ANALYSIS_TFS, index=4, format_func=lambda x: TF_LABELS[x])
     fundamental_bias = st.selectbox("Viés fundamental", ["Neutral", "Bullish", "Bearish"], index=0)
 
-    b1, b2 = st.columns(2)
-    with b1:
-        run = st.button("Analisar", use_container_width=True)
-    with b2:
-        refresh_chart = st.button("Atualizar gráfico", use_container_width=True)
-
-refresh_seconds = REFRESH_OPTIONS[refresh_label]
-
-if "run_analysis" not in st.session_state:
-    st.session_state["run_analysis"] = False
-
-if run or refresh_chart:
-    st.session_state["run_analysis"] = True
-    st.cache_data.clear()
+    st.markdown('<div class="info-box">', unsafe_allow_html=True)
+    st.write("**Execução fixa do sinal:** 5M")
+    st.write("**Atualização automática:** 1 minuto")
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with right:
-    if st.session_state["run_analysis"]:
-        try:
-            results = []
-            for tf in TF_LIST:
-                df = fetch_data(ASSETS[asset], tf, api_key)
-                if df.empty:
-                    st.error(f"Sem dados para {TF_LABELS[tf]}")
-                    st.stop()
-                results.append(analyze_tf(df, tf))
+    try:
+        results = []
+        for tf in ANALYSIS_TFS:
+            df = fetch_data(ASSETS[asset], tf, api_key)
+            if df.empty:
+                st.error(f"Sem dados para {TF_LABELS[tf]}")
+                st.stop()
+            results.append(analyze_tf(df, tf))
 
-            final_direction, probability = combine_results(results, exec_tf, fundamental_bias)
-            exec_result = next(r for r in results if r["tf_raw"] == exec_tf)
-            chart_result = next(r for r in results if r["tf_raw"] == chart_tf)
+        final_direction, probability = combine_results(results, fundamental_bias)
+        exec_result = next(r for r in results if r["tf_raw"] == EXEC_TF)
+        chart_result = next(r for r in results if r["tf_raw"] == chart_tf)
 
-            trend = classify_trend(results)
-            strength = classify_strength(results)
-            volatility = classify_volatility(exec_result)
+        trend = classify_trend(results)
+        strength = classify_strength(results)
+        volatility = classify_volatility(exec_result)
 
-            trade_direction = "BUY" if final_direction == "BUY" else "SELL" if final_direction == "SELL" else "NEUTRO"
-            stop, tps = build_trade(exec_result["price"], trade_direction, exec_result["atr"])
-            pois = poi_levels(chart_result["df"])
+        trade_direction = "BUY" if final_direction == "BUY" else "SELL" if final_direction == "SELL" else "NEUTRO"
+        stop, tps = build_trade(exec_result["price"], trade_direction, exec_result["atr"])
+        pois = poi_levels(chart_result["df"])
 
-            k1, k2, k3, k4, k5 = st.columns(5)
-            k1.metric("Preço", f'{exec_result["price"]:.5f}')
-            k2.metric("Tendência", trend)
-            k3.metric("Força", strength)
-            k4.metric("Volatilidade", volatility)
-            k5.metric("Probabilidade", f"{probability}%")
+        k1, k2, k3, k4, k5 = st.columns(5)
+        k1.metric("Preço 5M", f'{exec_result["price"]:.5f}')
+        k2.metric("Tendência", trend)
+        k3.metric("Força", strength)
+        k4.metric("Volatilidade", volatility)
+        k5.metric("Probabilidade", f"{probability}%")
 
+        aba1, aba2 = st.tabs(["Painel Principal", "Análise Completa"])
+
+        with aba1:
+            st.markdown('<div class="block-label">Resumo do Sinal</div>', unsafe_allow_html=True)
+
+            if final_direction == "BUY":
+                st.markdown(f'<div class="signal-buy">Direção final: {final_direction}</div>', unsafe_allow_html=True)
+            elif final_direction == "SELL":
+                st.markdown(f'<div class="signal-sell">Direção final: {final_direction}</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="signal-neutral">Direção final: {final_direction}</div>', unsafe_allow_html=True)
+
+            st.write(f"**Entrada (5M):** {exec_result['price']:.5f}")
+            st.write(f"**Stop:** {stop:.5f}")
+
+            st.markdown('<div class="block-label">Take Profits</div>', unsafe_allow_html=True)
+            if tps and final_direction in ["BUY", "SELL"]:
+                for i, tp in enumerate(tps, start=1):
+                    st.write(f"**TP{i}:** {tp:.5f}")
+            else:
+                st.write("Aguardando entrada confirmada.")
+
+            st.markdown(f'<div class="block-label">Gráfico em Candles ({TF_LABELS[chart_tf]})</div>', unsafe_allow_html=True)
+            fig = create_candlestick_chart(
+                chart_result["df"].tail(150),
+                f"{asset} - {TF_LABELS[chart_tf]}",
+                exec_result["price"],
+                stop,
+                tps,
+                pois,
+                final_direction
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with aba2:
             table = pd.DataFrame([
                 {
                     "TF": r["tf"],
@@ -598,62 +758,37 @@ with right:
                 for r in results
             ])
 
-            aba1, aba2 = st.tabs(["Painel Principal", "Análise Completa"])
+            st.markdown('<div class="block-label">Resumo Institucional</div>', unsafe_allow_html=True)
+            st.write(f"**Direção final:** {final_direction}")
+            st.write(f"**Viés fundamental:** {fundamental_bias}")
+            st.write(f"**AMD 5M:** {exec_result['amd']}")
+            st.write(f"**Estrutura 5M:** {exec_result['structure']}")
+            st.write(f"**Liquidity Sweep 5M:** {exec_result['sweep']}")
+            st.write(f"**Order Block 5M:** {exec_result['ob']}")
+            st.write(f"**FVG 5M:** {exec_result['fvg']}")
+            st.write(f"**IFVG 5M:** {exec_result['ifvg']}")
 
-            with aba1:
-                st.subheader("Resumo do Sinal")
-                st.write(f"**Direção final:** {final_direction}")
-                st.write(f"**Entrada:** {exec_result['price']:.5f}")
-                st.write(f"**Stop:** {stop:.5f}")
+            st.markdown('<div class="block-label">Pontos de Interesse</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="poi-box">Recent High: {pois["recent_high"]:.5f}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="poi-box">Recent Low: {pois["recent_low"]:.5f}</div>', unsafe_allow_html=True)
 
-                st.subheader("Take Profits")
-                if tps and final_direction in ["BUY", "SELL"]:
-                    for i, tp in enumerate(tps, start=1):
-                        st.write(f"TP{i}: {tp:.5f}")
-                else:
-                    st.write("Aguardando entrada confirmada.")
-
-                st.subheader(f"Gráfico em Candles ({TF_LABELS[chart_tf]})")
-                fig = create_candlestick_chart(
-                    chart_result["df"].tail(150),
-                    f"{asset} - {TF_LABELS[chart_tf]}",
-                    exec_result["price"],
-                    stop,
-                    tps,
-                    pois,
-                    final_direction
+            if pois["ob"]:
+                st.markdown(
+                    f'<div class="poi-box">{pois["ob"]["type"]}: {pois["ob"]["low"]:.5f} - {pois["ob"]["high"]:.5f}</div>',
+                    unsafe_allow_html=True
                 )
-                st.plotly_chart(fig, use_container_width=True)
 
-            with aba2:
-                st.subheader("Resumo Institucional")
-                st.write(f"**Direção final:** {final_direction}")
-                st.write(f"**Viés fundamental:** {fundamental_bias}")
-                st.write(f"**AMD:** {exec_result['amd']}")
-                st.write(f"**Estrutura:** {exec_result['structure']}")
-                st.write(f"**Liquidity Sweep:** {exec_result['sweep']}")
-                st.write(f"**Order Block:** {exec_result['ob']}")
-                st.write(f"**FVG:** {exec_result['fvg']}")
-                st.write(f"**IFVG:** {exec_result['ifvg']}")
+            if pois["fvg"]:
+                st.markdown(
+                    f'<div class="poi-box">{pois["fvg"]["type"]} FVG: {pois["fvg"]["bottom"]:.5f} - {pois["fvg"]["top"]:.5f}</div>',
+                    unsafe_allow_html=True
+                )
 
-                st.subheader("Pontos de Interesse")
-                st.write(f"- Recent High: {pois['recent_high']:.5f}")
-                st.write(f"- Recent Low: {pois['recent_low']:.5f}")
+            st.markdown('<div class="block-label">Painel por Timeframe</div>', unsafe_allow_html=True)
+            st.dataframe(table, use_container_width=True, hide_index=True)
 
-                if pois["ob"]:
-                    st.write(f"- {pois['ob']['type']}: {pois['ob']['low']:.5f} - {pois['ob']['high']:.5f}")
+    except Exception as e:
+        st.error(f"Erro ao analisar: {e}")
 
-                if pois["fvg"]:
-                    st.write(f"- {pois['fvg']['type']} FVG: {pois['fvg']['bottom']:.5f} - {pois['fvg']['top']:.5f}")
-
-                st.subheader("Painel por Timeframe")
-                st.dataframe(table, use_container_width=True, hide_index=True)
-
-        except Exception as e:
-            st.error(f"Erro ao analisar: {e}")
-    else:
-        st.info("Clique em Analisar para gerar a leitura institucional.")
-
-if st.session_state.get("run_analysis") and refresh_seconds > 0:
-    time.sleep(refresh_seconds)
-    st.rerun()
+time.sleep(REFRESH_SECONDS)
+st.rerun()
